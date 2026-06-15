@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TEKA - Screen Share</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0a0a0f;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      text-align: center;
+      padding: 2rem;
+    }
+    h1 {
+      font-size: 3rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #7c3aed, #ec4899);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.5rem;
+    }
+    .subtitle {
+      color: #888;
+      margin-bottom: 3rem;
+      font-size: 1.1rem;
+    }
+    .cards {
+      display: flex;
+      gap: 2rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .card {
+      background: #16161e;
+      border: 1px solid #2a2a3a;
+      border-radius: 16px;
+      padding: 2.5rem 2rem;
+      width: 300px;
+      transition: all 0.3s ease;
+      cursor: pointer;
+      text-decoration: none;
+      color: inherit;
+    }
+    .card:hover {
+      border-color: #7c3aed;
+      transform: translateY(-4px);
+      box-shadow: 0 12px 40px rgba(124, 58, 237, 0.15);
+    }
+    .card-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+    .card h2 {
+      font-size: 1.4rem;
+      margin-bottom: 0.5rem;
+    }
+    .card p {
+      color: #888;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    .footer {
+      position: fixed;
+      bottom: 1.5rem;
+      color: #444;
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>TEKA</h1>
+    <p class="subtitle">Screen sharing with stream keys for OBS Studio</p>
+    <div class="cards">
+      <a href="/share.html" class="card">
+        <div class="card-icon">🖥️</div>
+        <h2>Share Screen</h2>
+        <p>Start sharing your screen and get a stream key that others can use to watch.</p>
+      </a>
+      <a href="/view.html" class="card">
+        <div class="card-icon">👁️</div>
+        <h2>View Stream</h2>
+        <p>Enter a stream key to watch. Use this URL as a Browser Source in OBS.</p>
+      </a>
+    </div>
+  </div>
+  <div class="footer">WebRTC peer-to-peer &bull; No recording &bull; Direct connection</div>
+</body>
+</html>

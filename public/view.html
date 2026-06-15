@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TEKA - View Stream</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #000;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    /* Join form */
+    .join-container {
+      text-align: center;
+      padding: 2rem;
+    }
+    .join-container h1 {
+      font-size: 2rem;
+      margin-bottom: 1.5rem;
+      font-weight: 600;
+    }
+    .input-group {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: center;
+    }
+    .input-group input {
+      background: #16161e;
+      border: 1px solid #2a2a3a;
+      border-radius: 8px;
+      padding: 0.8rem 1.2rem;
+      font-size: 1.2rem;
+      font-family: 'Consolas', monospace;
+      color: #e0e0e0;
+      width: 220px;
+      text-align: center;
+      letter-spacing: 2px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .input-group input:focus { border-color: #7c3aed; }
+    .input-group input::placeholder {
+      color: #555;
+      letter-spacing: 0;
+      font-size: 0.9rem;
+    }
+    .btn {
+      background: linear-gradient(135deg, #7c3aed, #6d28d9);
+      color: white;
+      border: none;
+      padding: 0.8rem 1.5rem;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn:hover { transform: scale(1.02); opacity: 0.9; }
+    .error {
+      color: #ef4444;
+      margin-top: 1rem;
+      font-size: 0.9rem;
+      display: none;
+    }
+    /* Video view (fullscreen for OBS) */
+    .video-container {
+      width: 100vw;
+      height: 100vh;
+      display: none;
+      background: #000;
+      position: relative;
+    }
+    .video-container video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .overlay-status {
+      position: absolute;
+      top: 1rem;
+      left: 1rem;
+      background: rgba(0,0,0,0.7);
+      padding: 0.4rem 0.8rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .video-container:hover .overlay-status { opacity: 1; }
+    .dot-live {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #22c55e;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .ended-msg {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      display: none;
+    }
+    .ended-msg h2 { margin-bottom: 0.5rem; }
+    .ended-msg p { color: #888; }
+  </style>
+</head>
+<body>
+  <!-- Join form (shown when no key in URL) -->
+  <div class="join-container" id="joinContainer">
+    <h1>📺 View Stream</h1>
+    <div class="input-group">
+      <input type="text" id="keyInput" placeholder="Stream key" maxlength="12" autofocus>
+      <button class="btn" onclick="joinStream()">Watch</button>
+    </div>
+    <div class="error" id="error"></div>
+  </div>
+
+  <!-- Video (fullscreen, perfect for OBS browser source) -->
+  <div class="video-container" id="videoContainer">
+    <video id="remoteVideo" autoplay playsinline></video>
+    <div class="overlay-status">
+      <span class="dot-live"></span>
+      <span>LIVE</span>
+    </div>
+    <div class="ended-msg" id="endedMsg">
+      <h2>Stream Ended</h2>
+      <p>The broadcaster stopped sharing.</p>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    let peerConnection = null;
+
+    const iceConfig = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ]
+    };
+
+    // Auto-join if key is in URL params
+    const params = new URLSearchParams(window.location.search);
+    const urlKey = params.get('key');
+    if (urlKey) {
+      document.getElementById('keyInput').value = urlKey;
+      // Small delay to let socket connect
+      socket.on('connect', () => joinStream());
+    }
+
+    function joinStream() {
+      const key = document.getElementById('keyInput').value.trim();
+      if (!key) return;
+
+      socket.emit('join-stream', key, (response) => {
+        if (response.error) {
+          const errEl = document.getElementById('error');
+          errEl.textContent = response.error;
+          errEl.style.display = 'block';
+          return;
+        }
+        // Hide join form, show video
+        document.getElementById('joinContainer').style.display = 'none';
+        document.getElementById('videoContainer').style.display = 'block';
+      });
+    }
+
+    // Receive offer from broadcaster
+    socket.on('offer', async (broadcasterId, offer) => {
+      peerConnection = new RTCPeerConnection(iceConfig);
+
+      peerConnection.ontrack = (event) => {
+        document.getElementById('remoteVideo').srcObject = event.streams[0];
+      };
+
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit('ice-candidate', broadcasterId, event.candidate);
+        }
+      };
+
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+      socket.emit('answer', broadcasterId, answer);
+    });
+
+    // Receive ICE candidate
+    socket.on('ice-candidate', (senderId, candidate) => {
+      if (peerConnection) {
+        peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+      }
+    });
+
+    // Stream ended
+    socket.on('stream-ended', () => {
+      document.getElementById('endedMsg').style.display = 'block';
+      if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
+      }
+    });
+
+    // Enter key to join
+    document.getElementById('keyInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') joinStream();
+    });
+  </script>
+</body>
+</html>

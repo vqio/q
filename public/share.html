@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TEKA - Share Screen</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0a0a0f;
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .header a {
+      color: #7c3aed;
+      text-decoration: none;
+      font-size: 1.5rem;
+    }
+    .header h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+    .key-display {
+      background: #16161e;
+      border: 1px solid #2a2a3a;
+      border-radius: 12px;
+      padding: 1.5rem 2rem;
+      margin-bottom: 2rem;
+      display: none;
+    }
+    .key-display.active { display: block; }
+    .key-label {
+      font-size: 0.85rem;
+      color: #888;
+      margin-bottom: 0.5rem;
+    }
+    .key-value {
+      font-size: 2rem;
+      font-weight: 700;
+      font-family: 'Consolas', monospace;
+      color: #7c3aed;
+      letter-spacing: 2px;
+    }
+    .key-info {
+      margin-top: 1rem;
+      font-size: 0.85rem;
+      color: #666;
+      line-height: 1.6;
+    }
+    .key-info code {
+      background: #1e1e2e;
+      padding: 2px 8px;
+      border-radius: 4px;
+      color: #ec4899;
+      font-size: 0.8rem;
+    }
+    .btn {
+      background: linear-gradient(135deg, #7c3aed, #6d28d9);
+      color: white;
+      border: none;
+      padding: 0.9rem 2rem;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn:hover { transform: scale(1.02); opacity: 0.9; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+    .btn-copy {
+      background: #1e1e2e;
+      border: 1px solid #3a3a4a;
+      color: #e0e0e0;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      margin-left: 1rem;
+    }
+    .btn-copy:hover { border-color: #7c3aed; }
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 1rem;
+      font-size: 0.9rem;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ef4444;
+    }
+    .status-dot.live { background: #22c55e; animation: pulse 2s infinite; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .viewers {
+      margin-top: 1.5rem;
+      font-size: 0.9rem;
+      color: #888;
+    }
+    .preview {
+      margin-top: 2rem;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid #2a2a3a;
+      background: #000;
+    }
+    .preview video {
+      width: 100%;
+      max-height: 70vh;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="/">←</a>
+    <h1>Share Your Screen</h1>
+  </div>
+
+  <button class="btn" id="startBtn" onclick="startSharing()">
+    🖥️ Start Screen Share
+  </button>
+
+  <div class="key-display" id="keyDisplay">
+    <div class="key-label">YOUR STREAM KEY</div>
+    <div>
+      <span class="key-value" id="streamKey"></span>
+      <button class="btn-copy" onclick="copyKey()">Copy</button>
+    </div>
+    <div class="key-info">
+      <strong>How to use in OBS:</strong><br>
+      1. Add a <code>Browser Source</code> in OBS<br>
+      2. Set URL to: <code id="viewUrl"></code>
+      <button class="btn-copy" onclick="copyUrl()">Copy URL</button><br>
+      3. Set width/height to match your resolution<br>
+      4. Done! The stream appears in OBS.
+    </div>
+    <div class="status">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Waiting...</span>
+    </div>
+    <div class="viewers" id="viewers">Viewers: 0</div>
+  </div>
+
+  <div class="preview" id="preview" style="display:none;">
+    <video id="localVideo" autoplay muted playsinline></video>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    let localStream = null;
+    let peerConnections = {}; // viewerId -> RTCPeerConnection
+    let viewerCount = 0;
+    let currentStreamKey = '';
+
+    const iceConfig = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ]
+    };
+
+    async function startSharing() {
+      try {
+        localStream = await navigator.mediaDevices.getDisplayMedia({
+          video: { cursor: 'always', frameRate: { ideal: 30 } },
+          audio: true
+        });
+
+        document.getElementById('localVideo').srcObject = localStream;
+        document.getElementById('preview').style.display = 'block';
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('startBtn').textContent = '🔴 Sharing...';
+
+        // Track if user stops sharing via browser UI
+        localStream.getVideoTracks()[0].onended = () => {
+          stopSharing();
+        };
+
+        // Create stream on server
+        socket.emit('create-stream', (response) => {
+          currentStreamKey = response.streamKey;
+          document.getElementById('streamKey').textContent = currentStreamKey;
+          const baseUrl = window.location.origin;
+          document.getElementById('viewUrl').textContent = `${baseUrl}/view.html?key=${currentStreamKey}`;
+          document.getElementById('keyDisplay').classList.add('active');
+          document.getElementById('statusDot').classList.add('live');
+          document.getElementById('statusText').textContent = 'Live';
+        });
+      } catch (err) {
+        console.error('Screen share cancelled or failed:', err);
+      }
+    }
+
+    function stopSharing() {
+      if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+      }
+      Object.values(peerConnections).forEach(pc => pc.close());
+      peerConnections = {};
+      document.getElementById('startBtn').disabled = false;
+      document.getElementById('startBtn').textContent = '🖥️ Start Screen Share';
+      document.getElementById('preview').style.display = 'none';
+      document.getElementById('statusDot').classList.remove('live');
+      document.getElementById('statusText').textContent = 'Stopped';
+    }
+
+    // When a new viewer joins, create a peer connection and send offer
+    socket.on('viewer-joined', async (viewerId) => {
+      const pc = new RTCPeerConnection(iceConfig);
+      peerConnections[viewerId] = pc;
+
+      localStream.getTracks().forEach(track => {
+        pc.addTrack(track, localStream);
+      });
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit('ice-candidate', viewerId, event.candidate);
+        }
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit('offer', viewerId, offer);
+
+      viewerCount++;
+      document.getElementById('viewers').textContent = `Viewers: ${viewerCount}`;
+    });
+
+    // Receive answer from viewer
+    socket.on('answer', (viewerId, answer) => {
+      const pc = peerConnections[viewerId];
+      if (pc) {
+        pc.setRemoteDescription(new RTCSessionDescription(answer));
+      }
+    });
+
+    // Receive ICE candidate from viewer
+    socket.on('ice-candidate', (senderId, candidate) => {
+      const pc = peerConnections[senderId];
+      if (pc) {
+        pc.addIceCandidate(new RTCIceCandidate(candidate));
+      }
+    });
+
+    // Viewer left
+    socket.on('viewer-left', (viewerId) => {
+      if (peerConnections[viewerId]) {
+        peerConnections[viewerId].close();
+        delete peerConnections[viewerId];
+        viewerCount = Math.max(0, viewerCount - 1);
+        document.getElementById('viewers').textContent = `Viewers: ${viewerCount}`;
+      }
+    });
+
+    function copyKey() {
+      navigator.clipboard.writeText(currentStreamKey);
+    }
+    function copyUrl() {
+      const url = document.getElementById('viewUrl').textContent;
+      navigator.clipboard.writeText(url);
+    }
+  </script>
+</body>
+</html>
